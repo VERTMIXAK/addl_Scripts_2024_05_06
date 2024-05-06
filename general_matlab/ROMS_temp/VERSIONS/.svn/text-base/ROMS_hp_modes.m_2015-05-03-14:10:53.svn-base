@@ -1,0 +1,14 @@
+
+%%
+cu_hp=nan*cu;
+cv_hp=nan*cv;
+cr_hp=nan*cr;
+for mm=1:nm
+ disp(['highpassing mode level ',num2str(mm)])
+% only read in data for our region and time range
+for jj = 1:ny
+cu_hp(:,mm,jj,:)=highpass(sq(cu(:,mm,jj,:)),1/36,1,6);
+cv_hp(:,mm,jj,:)=highpass(sq(cv(:,mm,jj,:)),1/36,1,6);
+cr_hp(:,mm,jj,:)=highpass(sq(cr(:,mm,jj,:)),1/36,1,6);
+end % jj
+end % mm

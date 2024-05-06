@@ -1,0 +1,16 @@
+#! /bin/csh
+# shell script to get model output ready for processing by matlab
+# usage:
+# /home/hsimmons/matlab/MITGCM/MITGCM_proc.csh /home/hsimmons/PROJ/MODELS/MITgcm/EXP/TASMAN/INNER_SPHERICAL_07_12_2012/saves/output0001/
+
+set echo
+set base = $1
+
+cd $base
+
+foreach i (UVEL VVEL THETA RHOAnoma ETAN)
+ls -lh $i.*.t001.nc 
+if (! -e $i.t001.nc)     ncrcat -O $i.*.t001.nc $i.t001.nc
+end
+
+#mv *[A-Z,a-z].t001.nc ..

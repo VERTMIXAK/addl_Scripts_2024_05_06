@@ -1,0 +1,115 @@
+function MODEL=MITGCM_test_wave_gendata_regrid_topo(MODEL,ifplot,printit,ifJ)
+
+eval(['load ',MODEL.toposrcfile,' TOPO'])
+
+MODEL.lat2km=111.3171;
+MODEL.lon2km=sw_dist([MODEL.reflat MODEL.reflat],[0 1],'km')     ;
+
+delX = MODEL.dX0*ones(1,MODEL.Nx);MODEL.X=cumsum(delX);
+delY = MODEL.dY0*ones(1,MODEL.Ny);MODEL.Y=cumsum(delY);
+
+% Rotate coordinates and determine lat and lon
+ii=complex(0,1);
+
+[xi yi]=meshgrid(MODEL.X*1e-3,MODEL.Y*1e-3); xi=xi'; yi=yi';
+coord=xi+ii*yi;
+coord=coord*exp(ii*pi*MODEL.rotate_angle/180);
+coord=real(coord)./MODEL.lon2km+ii*imag(coord)/MODEL.lat2km;
+coord=coord+MODEL.lon0+ii*MODEL.lat0;
+MODEL.Lon=real(coord)'; MODEL.Lat=imag(coord)';
+
+% Interpolate bathymetry onto grid 
+%%
+MODEL.H=interp2(TOPO.lon',TOPO.lat',TOPO.H,MODEL.Lon,MODEL.Lat);
+MODEL.H(MODEL.H>=MODEL.H_deep)=MODEL.H_deep;
+land = 1-vswap(MODEL.H./MODEL.H,nan,0);
+%keyboard
+MODEL.H(MODEL.H<=2*MODEL.Res_Z)=2*MODEL.Res_Z;MODEL.H(land==1)=0;
+%%
+%keyboard
+% rotate the GOLD fluxes
+if ifJ
+	load TASMAN_J ;
+	tmpJu=interp2(J.lon',J.lat',J.IJPRu,MODEL.Lon,MODEL.Lat);
+	tmpJv=interp2(J.lon',J.lat',J.IJPRv,MODEL.Lon,MODEL.Lat);
+
+% since Ju and Jv are vectors we also have to rotate them as well
+theta = atan2(tmpJu,tmpJv) + deg2rad(-MODEL.rotate_angle);
+
+MODEL.Ju = tmpJu.*cos(theta) + tmpJv.*sin(theta);
+MODEL.Jv = tmpJv.*cos(theta) - tmpJu.*sin(theta);
+end
+% this is the window that we apply to center the beam on the eastern
+% boundary.
+MODEL.flux_window = exp(-((MODEL.Y/1e3 - 335)/120).^2);
+%% Make a weighting function to smooth offshore and along North and South
+Hsmoo=lowpass2d(MODEL.H,16,16);
+facx=(1/2+atan(.125*(MODEL.X/1e3-MODEL.eastsmoo)/pi)/pi);facx=facx-facx(1);facx=facx/facx(end);FACX=(repmat(facx,MODEL.Ny,1));
+facy=(1/2+atan(.125*(MODEL.Y/1e3-MODEL.northsmoo)/pi)/pi)-(1/2+atan(.125*(MODEL.Y/1e3-MODEL.southsmoo)/pi)/pi);facy=1-facy/min(facy);facy=facy/facy(end);FACY=(repmat(facy',1,MODEL.Nx));
+H2 = MODEL.H.*(1-FACX) + FACX.*Hsmoo;
+H2 = H2.*(1-FACY) + FACY.*Hsmoo;
+MODEL.Hsmoo=H2;
+%%
+if ifplot;lonmin=140-360;lonmax=170-360;latmin=-55;latmax=-38; H_deep=6000;
+	% a bunch of stuff to plot vectors on the maps
+	%-------------------------------------------------------------
+if ifJ
+	smoo = 2;sub = 4;usmoota=lowpass2d(J.IJPRu,smoo,smoo)/1000;vsmoota=lowpass2d(J.IJPRv,smoo,smoo)/1000;minv=.2;
+	tmpu = usmoota(1:sub:end,1:sub:end);tmpv = vsmoota(1:sub:end,1:sub:end);tmpU=sqrt(tmpu.^2+tmpv.^2);tmpu(tmpU<minv)=nan;
+	[xo,yo]=meshgrid(J.lon(1:sub:end),J.lat(1:sub:end));
+	testu=0;testv=5;testlon=145.5-360,testlat=-42-.125+.2;
+	scale = 350/2;fac = 1;hheadwidth = .5;hheadlength = .5;hshaftwidth=.1;
+end
+	%-------------------------------------------------------------
+	m_proj('equi','lon',[lonmin lonmax],'lat',[latmin latmax] )
+	figure(2);clf;colormap(sqrt(gray(32*2)))
+	%-------------------------------------------------------------
+	axes('pos',[.1,.525,.425,.425]);hformat(8)
+	%-------------------------------------------------------------
+	 m_imagesc(TOPO.lon,TOPO.lat,-TOPO.H+0*gradient(fliplr(TOPO.H)));hold on
+	 m_contour(TOPO.lon,TOPO.lat,-lowpass2d(TOPO.H,16,16),[-6000:1000:-1000],'k','linew',1);
+	 m_contour(TOPO.lon,TOPO.lat,-lowpass2d(TOPO.H,16,16),[-6500:1000:-500],'k','linew',.25);
+	 if ifJ
+		 m_vec(scale,[xo(:);testlon],[yo(:);testlat],fac*[tmpu(:);testu],fac*[tmpv(:);testv],'r',...
+		 'headwidth',hheadwidth,'headlength',hheadlength,'shaftwidth',hshaftwidth,'clip','on');
+	 end
+	 m_plot(MODEL.Lon(:  ,1  ),MODEL.Lat(:  ,1  ),'b-','linew',1)
+	 m_plot(MODEL.Lon(:  ,end),MODEL.Lat(:  ,end),'b-','linew',1)
+	 m_plot(MODEL.Lon(end,:  ),MODEL.Lat(end,:  ),'b-','linew',1)
+	 m_plot(MODEL.Lon(1  ,:  ),MODEL.Lat(1  ,:  ),'b-','linew',1)
+	 m_coast('patch',[.7 .7 .4]);m_grid('xtick',[135:4:180]-360,'ytick',[-73:2:-30]);
+	 title('source data with computational grid boundary overlayed (blue)');m_fix
+	%-------------------------------------------------------------
+    axes('pos',[.1,.05,.45,.45]);hformat(8)
+	%-------------------------------------------------------------
+	 imagesc(MODEL.X/1e3,MODEL.Y/1e3,-MODEL.Hsmoo);shading flat;axis equal tight;hold on;caxis([-H_deep,0]);hold on;axis xy
+	 contour(MODEL.X/1e3,MODEL.Y/1e3,-MODEL.Hsmoo,[-20:-1],'k','linew',1);
+	 contour(MODEL.X/1e3,MODEL.Y/1e3,-lowpass2d(MODEL.Hsmoo,4,4),[-400:100:-100],'b-','linew',.25);
+	 contour(MODEL.X/1e3,MODEL.Y/1e3,-lowpass2d(MODEL.Hsmoo,4,4),[-6000:1000:-1000],'k','linew',1);
+	 contour(MODEL.X/1e3,MODEL.Y/1e3,-lowpass2d(MODEL.Hsmoo,4,4),[-6500:1000:-500],'k','linew',.25);
+	 skip=6;
+	 if fiJ
+		 MODEL.Ju=lowpass2d(vswap(MODEL.Ju,nan,0),skip,skip);
+		 MODEL.Jv=lowpass2d(vswap(MODEL.Jv,nan,0),skip,skip);
+		 quiver(MODEL.X(1:skip:end)/1e3,MODEL.Y(1:skip:end)/1e3,MODEL.Ju(1:skip:end,1:skip:end),MODEL.Jv(1:skip:end,1:skip:end),1)
+	 end
+	 h=colorbar;set(h,'pos',[0.56    0.1244    0.01    0.2995])
+	 title('computational grid in MODELesian coordinates');%
+	 ylabel('km');xlabel('km')
+	 if printit;wysiwyg;pdfprint(['../FIGURES/TASMAN_model_grid_V1_',num2str(MODEL.dX0/1e3),'_km_resolution']);end
+	if ifJ
+		%-------------------------------------------------------------
+	figure(3);clf;axes('pos',[.1,.1,.4,.8]);hformat(12);
+	%-------------------------------------------------------------
+	 plot(MODEL.Ju(:,end)/1e3,MODEL.Lat(:,end),'k-','linew',2);axis tight;hold on
+	 plot(MODEL.flux_mag*MODEL.flux_window,MODEL.Lat(:,end),'r-','linew',2);
+	 legend('GOLD','Gaussian fit',2);ylabel('Latitude')	; xlabel('Flux (kW/m)');ytick([-50:-40]);xlim([-10,1])
+	 wysiwyg; pdfprint('../FIGURES/TASMAN_test_wave_eastern_boundary')
+	end
+figure(4);clf
+subplot(4,2,1);plot(MODEL.X/1e3,facx);
+subplot(4,2,2);plot(MODEL.Y/1e3,facy);axis tight
+subplot(4,2,3);imagesc(MODEL.X/1e3,MODEL.Y/1e3,MODEL.H);caxis([0,5000]);axis xy equal tight
+subplot(4,2,5);imagesc(MODEL.X/1e3,MODEL.Y/1e3,MODEL.Hsmoo);caxis([0,5000]);axis xy equal tight
+subplot(4,2,7);imagesc(MODEL.X/1e3,MODEL.Y/1e3,H2);caxis([0,5000]);axis xy equal tight
+end

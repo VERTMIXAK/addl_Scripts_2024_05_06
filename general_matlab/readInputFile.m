@@ -1,0 +1,10 @@
+fid=fopen('topog.witch','r','b');
+fid=fopen('RhoRef.data','r','b');
+%fid=fopen('T.init','r','b');
+%fid=fopen('delYvar','r','b');
+datafile=fread(fid,[100,20],'real*8')
+length(datafile)
+fclose(fid);
+plot(datafile)
+%surf(datafile);
+%contour(datafile);
